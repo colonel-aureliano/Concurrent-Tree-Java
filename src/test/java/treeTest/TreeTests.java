@@ -244,17 +244,6 @@ public class TreeTests {
     }
 
     @Test
-    public void testInsert() throws InterruptedException {
-        ConcurrentTreeImpl<String, Integer> t = new ConcurrentTreeImpl<>();
-        assertEquals(Maybe.none(), t.insert("Basant", 175));
-        assertEquals(Maybe.none(), t.insert("Yanny", 160));
-        assertEquals(Maybe.none(), t.insert("Gries", 140));
-        assertEquals(Maybe.none(), t.insert("Ambrose", 160));
-        assertEquals(Maybe.none(), t.insert("Balll", 175));
-        assertEquals(Maybe.some(175), t.insert("Balll", 176));
-    }
-
-    @Test
     public void myThreadTest() throws InterruptedException {
         ConcurrentTreeImpl<String, Integer> t = new ConcurrentTreeImpl<>();
         t.insert("Basant",175);
@@ -262,11 +251,13 @@ public class TreeTests {
 
         Runnable lam1 = () -> {
             assertEquals(Maybe.some(120),t.give("Yanny", 160));
-            t.give("Gries", 140);
+            t.give("Green", 140);
+            assertEquals(Maybe.some(160),t.query("Yanny"));
+            assertEquals(Maybe.some(140),t.query("Green"));
         };
 
         Runnable lam2 = () -> {
-            t.give("Ambrose", 159);
+            assertEquals(Maybe.none(),t.give("Ambrose", 159));
             t.give("Ball", 190);
         };
 

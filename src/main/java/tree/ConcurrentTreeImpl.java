@@ -4,6 +4,8 @@ package tree;
 import maybe.Maybe;
 import maybe.NoMaybeValue;
 
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 
 public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConcurrentTree<K, V> {
     public static final boolean debug = false;
@@ -13,6 +15,10 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
         V value;
         Maybe<TNode> left;
         Maybe<TNode> right;
+
+        private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+        private final ReentrantReadWriteLock.ReadLock readLock = lock.readLock();
+        private final ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
 
         /**
          * Constructs a TNode given a value which cannot be null
@@ -76,47 +82,6 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
     }
 
     @Override
-    public Maybe<V> give(K key, V val) {
-        TNode n;
-        synchronized (root) {
-            try {
-                //System.out.println("here: "+key+""+val);
-                n = root.get();
-            } catch (NoMaybeValue noMaybeValue) {
-                root = Maybe.some(new TNode(key, val));
-                return Maybe.none();
-            }
-        }
-        while (true) {
-            synchronized (n) {
-                if (key.equals(n.key)) {
-                    V tmp = n.value;
-                    n.value = comp.compare(val, tmp) > 0 ? val : tmp;
-                    return Maybe.from(tmp);
-                }
-                if (key.compareTo(n.key) < 0) {
-                    try {
-                        n = n.left.get();
-                    } catch (NoMaybeValue nmb) {
-                        n.left = Maybe.some(new TNode(key, val));
-                        //System.out.println("inserting left: "+key+""+val);
-                        break;
-                    }
-                } else {
-                    try {
-                        n = n.right.get();
-                    } catch (NoMaybeValue nmb) {
-                        n.right = Maybe.some(new TNode(key, val));
-                        //System.out.println("inserting right: "+key+""+val);
-                        break;
-                    }
-                }
-            }
-        }
-        return Maybe.none();
-    }
-
-    @Override
     public Maybe<V> get(K key) {
         return get(root, key);
     }
@@ -143,33 +108,115 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
     }
 
     @Override
-    public Maybe<V> query(K key) {
-        TNode n;
-        synchronized (root) {
-            try {
-                n = root.get();
-            } catch (NoMaybeValue noMaybeValue) {
-                return Maybe.none();
+    public Maybe<V> give(K key, V val) {
+        TNode n = null;
+        if (root.equals(Maybe.none())) {
+            synchronized (root) {
+                try {
+                    n = root.get();
+                } catch (NoMaybeValue noMaybeValue) {
+                    root = Maybe.some(new TNode(key, val));
+                    return Maybe.none();
+                }
             }
         }
-        while (true) {
-            synchronized (n) {
-                if (key.equals(n.key)) {
-                    return Maybe.from(n.value);
-                }
+        try {
+            n = root.get();
+        } catch (NoMaybeValue noMaybeValue) {}
+        TNode t;
+        while(true){
+            t = null;
+            n = traversal(n,key); // should write key, val under n
+            try{
+                n.writeLock.lock();
                 if (key.compareTo(n.key) < 0) {
                     try {
-                        n = n.left.get();
+                        t = n.left.get();
+                        continue; // keep traversing tree, some other thread wrote into its place
                     } catch (NoMaybeValue nmb) {
+                        n.left = Maybe.some(new TNode(key, val));
                         return Maybe.none();
                     }
-                } else {
+                } else if (key.compareTo(n.key) > 0) {
                     try {
-                        n = n.right.get();
+                        t = n.right.get();
+                        continue;
                     } catch (NoMaybeValue nmb) {
+                        n.right = Maybe.some(new TNode(key, val));
                         return Maybe.none();
                     }
+                } else if (key.equals(n.key)) {
+                    V tmp = n.value;
+                    n.value = comp.compare(val, tmp) > 0 ? val : tmp;
+                    return Maybe.from(tmp);
                 }
+            } finally {
+                n.writeLock.unlock();
+                if (t!=null) n = t;
+            }
+        }
+    }
+
+    /**
+     * Traverses the tree and returns a TNode n such that
+     * n is a leaf node, and either key should be inserted as its child or key.equals(n.key).
+     * Uses read lock only.
+     * @param n the node to start traversing
+     * @param key the key to insert into tree
+     * @return leaf node to insert key into
+     */
+    private TNode traversal(TNode n, K key){
+        TNode t = null;
+        while (true) {
+            try {
+                n.readLock.lock();
+                if (key.compareTo(n.key) < 0) {
+                    try {
+                        t = n.left.get();
+                    } catch (NoMaybeValue nmb) {
+                        break;
+                    }
+                } else if (key.compareTo(n.key) > 0) {
+                    try {
+                        t = n.right.get();
+                    } catch (NoMaybeValue nmb) {
+                        break;
+                    }
+                } else if (key.equals(n.key)) {
+                    break;
+                }
+            } finally {
+                n.readLock.unlock();
+                if (t!=null) n=t;
+            }
+        }
+        return n;
+    }
+
+    @Override
+    public Maybe<V> query(K key) {
+        TNode n = null;
+        if (root.equals(Maybe.none())) {
+            synchronized (root) {
+                try {
+                    n = root.get();
+                } catch (NoMaybeValue noMaybeValue) {
+                    return Maybe.none();
+                }
+            }
+        }
+        try {
+            n = root.get();
+        } catch (NoMaybeValue noMaybeValue) {}
+        while(true){
+            n = traversal(n,key);
+            try{
+                n.readLock.lock();
+                if (key.equals(n.key)) {
+                    return Maybe.from(n.value);
+                } else continue;
+            } finally{
+                n.readLock.unlock();
             }
         }
     }
