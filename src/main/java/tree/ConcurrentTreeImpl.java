@@ -159,17 +159,17 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
 
     /**
      * Traverses the tree and returns a TNode n such that
-     * n is a leaf node, and either key should be inserted as its child or key.equals(n.key).
-     * Uses read lock only.
+     * either key should be inserted as its child or key.equals(n.key).
      * @param n the node to start traversing
      * @param key the key to insert into tree
      * @return leaf node to insert key into
      */
     private TNode traversal(TNode n, K key){
-        TNode t = null;
+        TNode t;
+        n.readLock.lock();
         while (true) {
+            t=null;
             try {
-                n.readLock.lock();
                 if (key.compareTo(n.key) < 0) {
                     try {
                         t = n.left.get();
@@ -186,6 +186,7 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
                     break;
                 }
             } finally {
+                if (t!=null) t.readLock.lock();
                 n.readLock.unlock();
                 if (t!=null) n=t;
             }
@@ -214,6 +215,8 @@ public class ConcurrentTreeImpl<K extends Comparable<K>, V> extends AbstractConc
                 n.readLock.lock();
                 if (key.equals(n.key)) {
                     return Maybe.from(n.value);
+                } else if (n.right.equals(Maybe.none()) && n.left.equals(Maybe.none())){
+                    return Maybe.none();
                 } else continue;
             } finally{
                 n.readLock.unlock();

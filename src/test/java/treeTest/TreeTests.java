@@ -246,10 +246,10 @@ public class TreeTests {
     @Test
     public void myThreadTest() throws InterruptedException {
         ConcurrentTreeImpl<String, Integer> t = new ConcurrentTreeImpl<>();
-        t.insert("Basant",175);
-        t.insert("Yanny",120);
 
         Runnable lam1 = () -> {
+            t.give("Basant",175);
+            t.give("Yanny",120);
             assertEquals(Maybe.some(120),t.give("Yanny", 160));
             t.give("Green", 140);
             assertEquals(Maybe.some(160),t.query("Yanny"));
@@ -257,17 +257,39 @@ public class TreeTests {
         };
 
         Runnable lam2 = () -> {
-            assertEquals(Maybe.none(),t.give("Ambrose", 159));
+            assertEquals(Maybe.none(),t.give("Amber", 159));
             t.give("Ball", 190);
+            assertEquals(Maybe.some(159),t.query("Amber"));
+            assertEquals(Maybe.some(190),t.query("Ball"));
         };
 
         Thread t1 = new Thread(lam1);
         Thread t2 = new Thread(lam2);
-
         t1.start();
         t2.start();
         t1.join();
         t2.join();
+
+        Runnable lam3 = () -> {
+            assertEquals(Maybe.some(159),t.query("Amber"));
+            assertEquals(Maybe.some(190),t.query("Ball"));
+            t.give("Benjamin",170);
+            t.give("Horton",170);
+        };
+
+        Runnable lam4 = () -> {
+            assertEquals(Maybe.some(140),t.query("Green"));
+            assertEquals(Maybe.some(160),t.give("Yanny",162));
+            assertEquals(Maybe.none(),t.query("Penny"));
+            t.give("Horton",168); // will be overwritten by 170 or fail to overwrite 170
+        };
+
+        Thread t3 = new Thread(lam3);
+        Thread t4 = new Thread(lam4);
+        t4.start();
+        t3.start();
+        t4.join();
+        t3.join();
 
         t.inOrder();
         t.preOrder();
